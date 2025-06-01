@@ -3,6 +3,7 @@ import { resolve } from 'path'; // Needed for resolving __dirname
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: '/JulesDraw/', // Added base path
   server: {
     open: true, // Automatically open in browser on dev server start
   },

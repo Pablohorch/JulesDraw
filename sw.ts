@@ -4,13 +4,11 @@
 
 const CACHE_NAME: string = 'infinite-whiteboard-cache-v1';
 const urlsToCache: string[] = [
-    '/',
-    'index.html',
-    'style.css',
-    'script.js', // Build process (e.g., Vite) will handle actual paths for compiled files.
-                 // For development with a simple TS setup, this might need to be './dist/script.js'
-                 // if running from root and outDir is './dist'.
-    // Add paths to any icons if you have them
+    './',             // Represents the base directory where sw.js is (e.g., /JulesDraw/)
+    './index.html',   // Main entry point, relative to sw.js
+    // Note: Hashed assets like compiled JS (e.g., assets/index-xxxx.js) and CSS
+    // are not included here because their names are not known beforehand.
+    // The fetch event handler will cache them dynamically when requested.
 ];
 
 self.addEventListener('install', (event: Event) => {
