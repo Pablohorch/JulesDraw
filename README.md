@@ -70,15 +70,63 @@ This project can be easily deployed using GitHub Pages:
 5.  Under "Build and deployment", select `gh-pages` as the branch and `/ (root)` as the folder.
 6.  Your site should be live shortly at `https://<username>.github.io/<repository-name>/`.
 
-## Future Enhancements (TODO)
+## Future Enhancements
 
-*   Implement resizing handles for rectangles and lines.
-*   Full Pointer Events support for mobile:
-    *   Two-finger pan.
-    *   Pinch to zoom.
-    *   Touch drawing.
-*   Eraser tool.
-*   Selection tool (select, move, delete objects).
-*   Color picker and line width selector.
-*   Export drawing as image (PNG/SVG).
-*   Service Worker for offline caching (optional step in original plan).
+This section outlines potential improvements, new features, and technology considerations for future development of the Infinite Whiteboard.
+
+### Core Feature Enhancements
+*   **Object Manipulation**:
+    *   **Resizing Handles**: Implement intuitive resizing handles for rectangles, lines, and potentially other shapes.
+    *   **Rotation Handles**: Allow rotation of selected objects.
+    *   **Selection Tool**: A robust selection tool to select one or multiple objects, enabling:
+        *   Moving selected objects.
+        *   Deleting selected objects.
+        *   Grouping/Ungrouping objects.
+        *   Copy/Paste or Duplicate objects.
+    *   **Layering (Z-index)**: Functionality to bring objects forward or send them backward.
+*   **Drawing Tools & Options**:
+    *   **Eraser Tool**: Implement an eraser tool (object-based or pixel-based).
+    *   **Text Tool**: Allow adding and editing text elements on the canvas.
+    *   **More Shapes**: Add tools for circles, ellipses, triangles, arrows, etc.
+    *   **Color Picker**: A more advanced color picker for stroke and fill colors (where applicable).
+    *   **Line Width Selector**: Allow users to choose from various line thicknesses.
+    *   **Fill Options**: For shapes like rectangles and circles, allow fill colors and patterns.
+    *   **Snapping**: Grid snapping or object snapping for precise alignment.
+*   **Canvas & UX Improvements**:
+    *   **Minimap**: For easier navigation on a large canvas.
+    *   **Undo/Redo Functionality**: Essential for any drawing application.
+    *   **Export Options**:
+        *   Export drawing as PNG or JPEG.
+        *   Export drawing as SVG for scalable vector graphics.
+        *   Export board data as JSON (for backup or sharing).
+    *   **Import Board Data**: Allow importing a previously exported JSON board.
+    *   **Performance Optimization**: For very large numbers of objects, investigate techniques like canvas layering, offscreen rendering, or WebGL for rendering.
+    *   **Accessibility (a11y)**: Improve keyboard navigation, ARIA attributes, and screen reader support.
+    *   **Customizable Grid**: Allow users to show/hide a background grid and customize its appearance.
+
+### Technology & Architecture
+*   **State Management**: For more complex features, consider a dedicated state management library (e.g., Redux, Zustand, or a custom solution) instead of simple global variables.
+*   **Component-Based Architecture**: If the UI becomes more complex (e.g., modal dialogs, advanced toolbars), refactoring using a component-based approach (even with vanilla JS using Web Components or a simple custom framework) could be beneficial.
+*   **Build System**: Introduce a build system (e.g., Vite, Parcel, or Webpack) for:
+    *   JavaScript module bundling.
+    *   CSS preprocessing (Sass/SCSS, PostCSS).
+    *   Minification for production builds.
+    *   Development server with hot module replacement (HMR).
+*   **Testing Framework**: Introduce a testing framework (e.g., Jest, Vitest, Playwright) for:
+    *   Unit tests for core logic (drawing calculations, state changes).
+    *   End-to-end tests for user interactions.
+*   **TypeScript Migration**: Consider migrating to TypeScript for improved code quality, maintainability, and developer experience through static typing.
+*   **Backend & Collaboration (Major Evolution)**:
+    *   **Real-time Collaboration**: Using WebSockets (e.g., Socket.io) or WebRTC to allow multiple users to draw on the same board simultaneously. This would require a backend server.
+    *   **Cloud Storage**: Saving boards to a cloud database instead of just `localStorage`.
+    *   **User Accounts**: For managing saved boards and collaboration.
+
+### Mobile-Specific Enhancements
+*   **Refined Touch Gestures**: Further optimize touch interactions, potentially handling edge cases like very quick gestures or transitions between single and multi-touch more gracefully.
+*   **Haptic Feedback**: For certain actions on mobile.
+*   **Progressive Web App (PWA) Enhancements**:
+    *   More robust offline capabilities beyond basic static caching (e.g., offline storage for multiple boards).
+    *   Add to Home Screen functionality.
+    *   Push notifications (if applicable for collaborative features).
+
+This list provides a roadmap for evolving the Infinite Whiteboard into an even more powerful and versatile tool.
