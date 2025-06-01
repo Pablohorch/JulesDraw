@@ -1,0 +1,77 @@
+body {
+    margin: 0;
+    overflow: hidden; /* Prevent scrollbars from the body itself */
+    font-family: sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh; /* Ensure body takes full viewport height */
+    background-color: #f0f0f0; /* Light gray background for contrast */
+}
+
+#board {
+    border: 1px solid #ccc;
+    /* Centering will be handled by JavaScript transformations for pan/zoom */
+    /* For initial view, it will be at 0,0 of its large canvas size */
+    cursor: crosshair; /* Default cursor */
+}
+
+#toolbar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%); /* Center the toolbar */
+    background-color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    display: flex;
+    padding: 10px;
+    gap: 10px;
+    height: 40px; /* 60px total height including padding */
+}
+
+.tool-button {
+    background-color: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px; /* Fixed width for icon buttons */
+    height: 36px; /* Fixed height for icon buttons */
+    font-size: 18px; /* For text/emoji buttons if icons are not used initially */
+}
+
+.tool-button:hover {
+    background-color: #f0f0f0;
+}
+
+.tool-button.active {
+    background-color: #ddd;
+    border-color: #aaa;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #toolbar {
+        width: calc(100% - 40px); /* Full width with some padding */
+        max-width: none; /* Override desktop max-width */
+        bottom: 10px;
+        left: 20px;
+        transform: none; /* Reset transform */
+        justify-content: space-around; /* Distribute buttons evenly */
+    }
+
+    .tool-button {
+        /* Icons would ideally be 24px, button size adjusted accordingly */
+        width: 30px;
+        height: 30px;
+        font-size: 16px;
+    }
+
+    /* For mobile, the canvas might need to be explicitly sized to viewport if not done by JS */
+    /* body { display: block; } /* Reset flex centering for mobile if canvas handles its own full screen */
+    /* #board { width: 100vw; height: 100vh; } */ /* This will be controlled by JS potentially */
+}
