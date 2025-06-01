@@ -2,56 +2,130 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvas = document.getElementById('board');
     const ctx = canvas.getContext('2d');
 
+    // --- DOM Elements ---
+    const brushToolButton = document.getElementById('brush-tool');
+    const rectToolButton = document.getElementById('rect-tool');
+    const lineToolButton = document.getElementById('line-tool');
+    const undoButton = document.getElementById('undo-button'); // Added
+    const redoButton = document.getElementById('redo-button'); // Added
+
+    // --- Canvas & Drawing State ---
     const CANVAS_WIDTH = 5000;
     const CANVAS_HEIGHT = 5000;
     canvas.width = CANVAS_WIDTH;
     canvas.height = CANVAS_HEIGHT;
 
     let scale = 1;
-    let panX = 0;
-    let panY = 0;
+    let panX = (window.innerWidth - CANVAS_WIDTH * scale) / 2;
+    let panY = (window.innerHeight - CANVAS_HEIGHT * scale) / 2;
 
-    panX = (window.innerWidth - CANVAS_WIDTH * scale) / 2;
-    panY = (window.innerHeight - CANVAS_HEIGHT * scale) / 2;
-
-    let isPanning = false; // For single pointer/mouse pan
+    let isPanning = false;
     let lastPanPosition = { x: 0, y: 0 };
     let spacePressed = false;
 
-    const toolbar = document.getElementById('toolbar');
-    const brushToolButton = document.getElementById('brush-tool');
-    const rectToolButton = document.getElementById('rect-tool');
-    const lineToolButton = document.getElementById('line-tool');
-
     let currentTool = 'brush';
-    let isDrawing = false; // For single pointer/mouse draw
+    let isDrawing = false;
     let drawnObjects = [];
     let currentPath = [];
     let startX, startY;
 
     let activePointers = new Map();
+    let initialPointerDistance = null;
+    let lastGesturePanPosition = null;
+    let isGesturing = false;
 
-    // --- Gesture State Variables ---
-    let initialPointerDistance = null; // For pinch zoom, acts as previous distance
-    let lastGesturePanPosition = null; // For two-finger pan centroid
-    let isGesturing = false;           // True if a multi-touch gesture is active
+    // --- Undo/Redo State ---
+    let undoStack = [];
+    let redoStack = [];
+    const MAX_UNDO_STATES = 50;
 
+    // --- Persistence State ---
     const STORAGE_KEY = 'infiniteWhiteboardDrawing';
     let saveTimeout = null;
 
-    function saveData() { /* ... (existing unchanged) ... */
+    // --- UI Update Function ---
+    function updateUndoRedoButtonStates() {
+        if (undoButton) {
+            undoButton.disabled = undoStack.length === 0;
+        }
+        if (redoButton) {
+            redoButton.disabled = redoStack.length === 0;
+        }
+        // console.log("Button states updated. Undo enabled:", !(undoStack.length === 0), "Redo enabled:", !(redoStack.length === 0));
+    }
+
+    // --- Undo/Redo Logic ---
+    function saveStateForUndo() {
+        try {
+            const currentState = JSON.parse(JSON.stringify(drawnObjects));
+            undoStack.push(currentState);
+
+            if (undoStack.length > MAX_UNDO_STATES) {
+                undoStack.shift();
+            }
+            redoStack = [];
+
+            updateUndoRedoButtonStates();
+            // console.log('State saved for undo. Undo:', undoStack.length, 'Redo:', redoStack.length);
+        } catch (e) {
+            console.error("Error saving state for undo:", e);
+        }
+    }
+
+    function handleUndo() {
+        if (undoStack.length > 0) {
+            try {
+                redoStack.push(JSON.parse(JSON.stringify(drawnObjects)));
+                const previousState = undoStack.pop();
+                drawnObjects = JSON.parse(JSON.stringify(previousState));
+
+                applyTransformAndDrawObjects();
+                scheduleSave();
+                updateUndoRedoButtonStates();
+                // console.log('Undo applied. Undo stack:', undoStack.length, 'Redo stack:', redoStack.length);
+            } catch (e) {
+                console.error("Error during undo:", e);
+            }
+        } else {
+            // console.log('Undo stack empty.');
+        }
+    }
+
+    function handleRedo() {
+        if (redoStack.length > 0) {
+            try {
+                undoStack.push(JSON.parse(JSON.stringify(drawnObjects)));
+                if (undoStack.length > MAX_UNDO_STATES) {
+                    undoStack.shift();
+                }
+                const nextState = redoStack.pop();
+                drawnObjects = JSON.parse(JSON.stringify(nextState));
+
+                applyTransformAndDrawObjects();
+                scheduleSave();
+                updateUndoRedoButtonStates();
+                // console.log('Redo applied. Undo stack:', undoStack.length, 'Redo stack:', redoStack.length);
+            } catch (e) {
+                console.error("Error during redo:", e);
+            }
+        } else {
+            // console.log('Redo stack empty.');
+        }
+    }
+
+    // --- Persistence Logic ---
+    function saveData() {
         if (saveTimeout) { clearTimeout(saveTimeout); saveTimeout = null; }
         try {
             const data = JSON.stringify(drawnObjects);
             localStorage.setItem(STORAGE_KEY, data);
-            console.log('Drawing saved to localStorage');
         } catch (error) { console.error('Error saving to localStorage:', error); }
     }
-    function scheduleSave() { /* ... (existing unchanged) ... */
+    function scheduleSave() {
         if (saveTimeout) clearTimeout(saveTimeout);
         saveTimeout = setTimeout(saveData, 5000);
     }
-    function loadData() { /* ... (existing unchanged) ... */
+    function loadData() {
         try {
             const data = localStorage.getItem(STORAGE_KEY);
             if (data) {
@@ -61,7 +135,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) { console.error('Error loading from localStorage:', error); drawnObjects = []; }
     }
 
-    function setActiveTool(tool) { /* ... (existing unchanged, ensures cursor updates) ... */
+    // --- Tool Switching Logic ---
+    function setActiveTool(tool) {
         currentTool = tool;
         if (brushToolButton) brushToolButton.classList.toggle('active', tool === 'brush');
         if (rectToolButton) rectToolButton.classList.toggle('active', tool === 'rect');
@@ -78,16 +153,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- Toolbar Button Event Listeners ---
     if (brushToolButton) brushToolButton.addEventListener('click', () => setActiveTool('brush'));
     if (rectToolButton) rectToolButton.addEventListener('click', () => setActiveTool('rect'));
     if (lineToolButton) lineToolButton.addEventListener('click', () => setActiveTool('line'));
 
-    function getPointerPos(event) { /* ... (existing unchanged) ... */
+    if (undoButton) { // Added
+        undoButton.addEventListener('click', () => {
+            handleUndo();
+        });
+    }
+    if (redoButton) { // Added
+        redoButton.addEventListener('click', () => {
+            handleRedo();
+        });
+    }
+
+    // --- Coordinate Helper ---
+    function getPointerPos(event) {
         const rect = canvas.getBoundingClientRect();
         return { x: (event.clientX - rect.left - panX) / scale, y: (event.clientY - rect.top - panY) / scale };
     }
 
-    function applyTransformAndDrawObjects(isPreviewing = false, previewPos = null) { /* ... (existing brush dot logic updated here) ... */
+    // --- Rendering Logic ---
+    function applyTransformAndDrawObjects(isPreviewing = false, previewPos = null) {
         ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         ctx.save();
         ctx.translate(panX, panY);
@@ -95,14 +184,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         drawnObjects.forEach(obj => {
             ctx.strokeStyle = obj.color;
-            const lineWidth = obj.lineWidth / scale; // Use a const for clarity if not reassigning
-            ctx.lineWidth = lineWidth; // Corrected: Use the calculated lineWidth
+            const lineWidth = obj.lineWidth / scale;
+            ctx.lineWidth = lineWidth;
             ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
             if (obj.type === 'brush') {
                 if (obj.isDot && obj.path.length === 1) {
                     ctx.beginPath();
-                    // For a dot, draw a small circle. lineWidth is already scaled.
                     ctx.arc(obj.path[0].x, obj.path[0].y, lineWidth / 2, 0, Math.PI * 2);
                     ctx.fillStyle = obj.color;
                     ctx.fill();
@@ -122,7 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        if (isPreviewing && isDrawing) { // Preview for single-pointer drawing
+        if (isPreviewing && isDrawing) {
             ctx.strokeStyle = '#000000';
             ctx.lineWidth = 2 / scale;
             ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -151,7 +239,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const dx = p1.clientX - p2.clientX; const dy = p1.clientY - p2.clientY;
         return Math.sqrt(dx * dx + dy * dy);
     }
-
     function getCentroid(pointersArray) {
         if (pointersArray.length < 2) return { x: 0, y: 0 };
         const p1 = pointersArray[0]; const p2 = pointersArray[1];
@@ -165,20 +252,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (activePointers.size === 2) {
             isGesturing = true;
-            isDrawing = false; isPanning = false; // Stop single-pointer actions
+            isDrawing = false; isPanning = false;
             currentPath = [];
 
             const pointers = Array.from(activePointers.values());
             initialPointerDistance = getDistanceBetweenPointers(pointers);
             lastGesturePanPosition = getCentroid(pointers);
-            setActiveTool(currentTool); // Updates cursor to 'move'
+            setActiveTool(currentTool);
         } else if (activePointers.size === 1 && !isGesturing) {
             const pointerEvent = event;
             if ((pointerEvent.pointerType === 'mouse' && pointerEvent.button === 2) ||
                 (spacePressed && pointerEvent.isPrimary)) {
                 isPanning = true;
                 lastPanPosition = { x: pointerEvent.clientX, y: pointerEvent.clientY };
-                setActiveTool(currentTool); // Updates cursor
+                setActiveTool(currentTool);
             } else if (((pointerEvent.pointerType === 'mouse' && pointerEvent.button === 0) ||
                        (pointerEvent.pointerType === 'touch' && pointerEvent.isPrimary)) && !spacePressed) {
                 isDrawing = true;
@@ -187,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (currentTool === 'brush') {
                     currentPath = [{ x: startX, y: startY, isPotentialDot: true }];
                 }
-                setActiveTool(currentTool); // Updates cursor
+                setActiveTool(currentTool);
             }
         }
     }
@@ -201,19 +288,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const currentCentroid = getCentroid(pointers);
             const canvasRect = canvas.getBoundingClientRect();
 
-            // Two-Finger Pan
             if (lastGesturePanPosition) {
                 const dxPan = currentCentroid.x - lastGesturePanPosition.x;
                 const dyPan = currentCentroid.y - lastGesturePanPosition.y;
                 panX += dxPan; panY += dyPan;
             }
 
-            // Pinch Zoom (Incremental)
             const currentDistance = getDistanceBetweenPointers(pointers);
-            if (initialPointerDistance && initialPointerDistance > 0) { // initialPointerDistance is previous distance here
+            if (initialPointerDistance && initialPointerDistance > 0) {
                 const scaleFactor = currentDistance / initialPointerDistance;
                 let newScale = scale * scaleFactor;
-                newScale = Math.max(0.1, Math.min(4, newScale)); // Clamp scale
+                newScale = Math.max(0.1, Math.min(4, newScale));
 
                 const zoomPointX = (currentCentroid.x - canvasRect.left - panX) / scale;
                 const zoomPointY = (currentCentroid.y - canvasRect.top - panY) / scale;
@@ -224,7 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             lastGesturePanPosition = currentCentroid;
-            initialPointerDistance = currentDistance; // Update for next incremental step
+            initialPointerDistance = currentDistance;
 
             applyTransformAndDrawObjects();
         } else if (isPanning && activePointers.size === 1) {
@@ -255,7 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isGesturing = false;
                 initialPointerDistance = null;
                 lastGesturePanPosition = null;
-                setActiveTool(currentTool); // Reset cursor
+                setActiveTool(currentTool);
             }
         } else if (isPanning && activePointers.size === 0) {
             isPanning = false;
@@ -270,14 +355,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (isDot) {
                     newObject = { type: 'brush', path: [{ x: startX, y: startY }], isDot: true, ...commonProps };
                 } else {
-                    // If it moved, currentPath[0].isPotentialDot would be deleted.
-                    // Ensure last point is added if necessary (e.g. tap then lift without move)
                     if (currentPath.length === 1 && (currentPath[0].x !== pos.x || currentPath[0].y !== pos.y)) {
-                         currentPath.push(pos); // Add final point if different from start
-                    } else if (currentPath[currentPath.length-1].x !== pos.x || currentPath[currentPath.length-1].y !== pos.y ) {
+                         currentPath.push(pos);
+                    } else if (currentPath.length > 1 && (currentPath[currentPath.length-1].x !== pos.x || currentPath[currentPath.length-1].y !== pos.y) ) {
                          currentPath.push(pos);
                     }
-                    if (currentPath.length >=1 ) { // Allow single point if it's explicitly not a dot (e.g. after a gesture)
+                    if (currentPath.length >=1 ) {
                        newObject = { type: 'brush', path: [...currentPath], isDot: false, ...commonProps };
                     }
                 }
@@ -289,6 +372,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (newObject) {
+                saveStateForUndo();
                 drawnObjects.push(newObject);
                 scheduleSave();
             }
@@ -304,33 +388,47 @@ document.addEventListener('DOMContentLoaded', () => {
     canvas.addEventListener('pointercancel', onPointerUpOrCancel);
     canvas.addEventListener('pointerleave', (e) => { if(e.pointerType === 'mouse') onPointerUpOrCancel(e);});
 
-
-    canvas.addEventListener('contextmenu', (event) => { /* ... (existing unchanged) ... */
+    canvas.addEventListener('contextmenu', (event) => {
         if (event.pointerType === 'mouse' && event.button === 2) event.preventDefault();
     });
 
-    window.addEventListener('keydown', (event) => { /* ... (existing unchanged, calls setActiveTool) ... */
+    // --- Keyboard Event Listeners ---
+    window.addEventListener('keydown', (event) => {
         if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+
         if (event.code === 'Space') {
             if (!spacePressed) { spacePressed = true; setActiveTool(currentTool); event.preventDefault(); }
-        } else if (event.key === 'b' || event.key === 'B') setActiveTool('brush');
-        else if (event.key === 'r' || event.key === 'R') setActiveTool('rect');
-        else if (event.key === 'l' || event.key === 'L') setActiveTool('line');
+        } else if (event.key === 'b' || event.key === 'B') {
+            setActiveTool('brush');
+        } else if (event.key === 'r' || event.key === 'R') {
+            setActiveTool('rect');
+        } else if (event.key === 'l' || event.key === 'L') {
+            setActiveTool('line');
+        } else if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) { // Ctrl+Z or Cmd+Z
+            event.preventDefault();
+            handleUndo();
+        } else if ((event.ctrlKey || event.metaKey) && event.key === 'y') { // Ctrl+Y or Cmd+Y
+            event.preventDefault();
+            handleRedo();
+        } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === 'Z' || event.key === 'z')) { // Ctrl+Shift+Z or Cmd+Shift+Z
+             event.preventDefault();
+             handleRedo();
+        }
     });
-    window.addEventListener('keyup', (event) => { /* ... (existing unchanged, calls setActiveTool) ... */
+    window.addEventListener('keyup', (event) => {
         if (event.code === 'Space') {
             spacePressed = false; setActiveTool(currentTool); event.preventDefault();
         }
     });
 
-    canvas.addEventListener('wheel', (event) => { /* ... (existing unchanged) ... */
+    canvas.addEventListener('wheel', (event) => {
         event.preventDefault();
         const zoomIntensity = 0.1; const direction = event.deltaY < 0 ? 1 : -1;
         const currentRect = canvas.getBoundingClientRect();
         const mouseX = event.clientX - currentRect.left; const mouseY = event.clientY - currentRect.top;
         const pointX = (mouseX - panX) / scale; const pointY = (mouseY - panY) / scale;
-        let newScale = scale * (1 + direction * zoomIntensity); // Multiplicative zoom
-        newScale = Math.max(0.1, Math.min(4, newScale)); // Clamp scale
+        let newScale = scale * (1 + direction * zoomIntensity);
+        newScale = Math.max(0.1, Math.min(4, newScale));
         panX = mouseX - pointX * newScale; panY = mouseY - pointY * newScale;
         scale = newScale;
         applyTransformAndDrawObjects();
@@ -339,13 +437,14 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('pagehide', saveData);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveData(); });
 
+    // --- Initial Load & Setup ---
     loadData();
     setActiveTool(currentTool);
     applyTransformAndDrawObjects();
+    saveStateForUndo(); // Save initial state for undo
+    updateUndoRedoButtonStates(); // Set initial button states
 
-    // TODO: Further refinement of gesture transitions.
-
-    if ('serviceWorker' in navigator) { /* ... (existing unchanged) ... */
+    if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('./sw.js')
                 .then(reg => console.log('SW registered:', reg.scope))
