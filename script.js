@@ -95,7 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         drawnObjects.forEach(obj => {
             ctx.strokeStyle = obj.color;
-            const-lineWidth = obj.lineWidth / scale; // Use a const for clarity if not reassigning
+            const lineWidth = obj.lineWidth / scale; // Use a const for clarity if not reassigning
             ctx.lineWidth = lineWidth; // Corrected: Use the calculated lineWidth
             ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
