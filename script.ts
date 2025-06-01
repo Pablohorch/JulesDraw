@@ -1,63 +1,101 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const canvas = document.getElementById('board');
-    const ctx = canvas.getContext('2d');
+// --- Type Definitions ---
+interface Point {
+    x: number;
+    y: number;
+    isPotentialDot?: boolean; // For brush strokes during creation
+}
 
+interface DrawingObjectBase {
+    type: 'brush' | 'rect' | 'line';
+    color: string;
+    lineWidth: number;
+}
+
+interface BrushStroke extends DrawingObjectBase {
+    type: 'brush';
+    path: Point[];
+    isDot?: boolean; // True if the brush stroke is just a single dot
+}
+
+interface Rectangle extends DrawingObjectBase {
+    type: 'rect';
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+interface Line extends DrawingObjectBase {
+    type: 'line';
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+}
+
+type DrawingObject = BrushStroke | Rectangle | Line;
+type CanvasState = DrawingObject[]; // Represents an array of drawing objects, used for undo/redo
+
+document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
-    const brushToolButton = document.getElementById('brush-tool');
-    const rectToolButton = document.getElementById('rect-tool');
-    const lineToolButton = document.getElementById('line-tool');
-    const undoButton = document.getElementById('undo-button'); // Added
-    const redoButton = document.getElementById('redo-button'); // Added
+    const canvas = document.getElementById('board') as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d')!; // Non-null assertion, as canvas should always exist
+
+    const brushToolButton = document.getElementById('brush-tool') as HTMLButtonElement | null;
+    const rectToolButton = document.getElementById('rect-tool') as HTMLButtonElement | null;
+    const lineToolButton = document.getElementById('line-tool') as HTMLButtonElement | null;
+    const undoButton = document.getElementById('undo-button') as HTMLButtonElement | null;
+    const redoButton = document.getElementById('redo-button') as HTMLButtonElement | null;
 
     // --- Canvas & Drawing State ---
-    const CANVAS_WIDTH = 5000;
-    const CANVAS_HEIGHT = 5000;
+    const CANVAS_WIDTH: number = 5000;
+    const CANVAS_HEIGHT: number = 5000;
     canvas.width = CANVAS_WIDTH;
     canvas.height = CANVAS_HEIGHT;
 
-    let scale = 1;
-    let panX = (window.innerWidth - CANVAS_WIDTH * scale) / 2;
-    let panY = (window.innerHeight - CANVAS_HEIGHT * scale) / 2;
+    let scale: number = 1;
+    let panX: number = (window.innerWidth - CANVAS_WIDTH * scale) / 2;
+    let panY: number = (window.innerHeight - CANVAS_HEIGHT * scale) / 2;
 
-    let isPanning = false;
-    let lastPanPosition = { x: 0, y: 0 };
-    let spacePressed = false;
+    let isPanning: boolean = false;
+    let lastPanPosition: Point = { x: 0, y: 0 };
+    let spacePressed: boolean = false;
 
-    let currentTool = 'brush';
-    let isDrawing = false;
-    let drawnObjects = [];
-    let currentPath = [];
-    let startX, startY;
+    type ToolType = 'brush' | 'rect' | 'line';
+    let currentTool: ToolType = 'brush';
+    let isDrawing: boolean = false;
+    let drawnObjects: DrawingObject[] = [];
+    let currentPath: Point[] = [];
+    let startX: number, startY: number; // Assigned in onPointerDown
 
-    let activePointers = new Map();
-    let initialPointerDistance = null;
-    let lastGesturePanPosition = null;
-    let isGesturing = false;
+    let activePointers: Map<number, PointerEvent> = new Map();
+    let initialPointerDistance: number | null = null;
+    let lastGesturePanPosition: Point | null = null;
+    let isGesturing: boolean = false;
 
     // --- Undo/Redo State ---
-    let undoStack = [];
-    let redoStack = [];
-    const MAX_UNDO_STATES = 50;
+    let undoStack: CanvasState[] = [];
+    let redoStack: CanvasState[] = [];
+    const MAX_UNDO_STATES: number = 50;
 
     // --- Persistence State ---
-    const STORAGE_KEY = 'infiniteWhiteboardDrawing';
-    let saveTimeout = null;
+    const STORAGE_KEY: string = 'infiniteWhiteboardDrawing';
+    let saveTimeout: number | null = null; // NodeJS.Timeout in Node, number in browser
 
     // --- UI Update Function ---
-    function updateUndoRedoButtonStates() {
+    function updateUndoRedoButtonStates(): void {
         if (undoButton) {
             undoButton.disabled = undoStack.length === 0;
         }
         if (redoButton) {
             redoButton.disabled = redoStack.length === 0;
         }
-        // console.log("Button states updated. Undo enabled:", !(undoStack.length === 0), "Redo enabled:", !(redoStack.length === 0));
     }
 
     // --- Undo/Redo Logic ---
-    function saveStateForUndo() {
+    function saveStateForUndo(): void {
         try {
-            const currentState = JSON.parse(JSON.stringify(drawnObjects));
+            const currentState: CanvasState = JSON.parse(JSON.stringify(drawnObjects));
             undoStack.push(currentState);
 
             if (undoStack.length > MAX_UNDO_STATES) {
@@ -66,77 +104,70 @@ document.addEventListener('DOMContentLoaded', () => {
             redoStack = [];
 
             updateUndoRedoButtonStates();
-            // console.log('State saved for undo. Undo:', undoStack.length, 'Redo:', redoStack.length);
         } catch (e) {
             console.error("Error saving state for undo:", e);
         }
     }
 
-    function handleUndo() {
+    function handleUndo(): void {
         if (undoStack.length > 0) {
             try {
                 redoStack.push(JSON.parse(JSON.stringify(drawnObjects)));
-                const previousState = undoStack.pop();
+                const previousState = undoStack.pop()!; // Non-null as length > 0
                 drawnObjects = JSON.parse(JSON.stringify(previousState));
 
                 applyTransformAndDrawObjects();
                 scheduleSave();
                 updateUndoRedoButtonStates();
-                // console.log('Undo applied. Undo stack:', undoStack.length, 'Redo stack:', redoStack.length);
             } catch (e) {
                 console.error("Error during undo:", e);
             }
-        } else {
-            // console.log('Undo stack empty.');
         }
     }
 
-    function handleRedo() {
+    function handleRedo(): void {
         if (redoStack.length > 0) {
             try {
                 undoStack.push(JSON.parse(JSON.stringify(drawnObjects)));
                 if (undoStack.length > MAX_UNDO_STATES) {
                     undoStack.shift();
                 }
-                const nextState = redoStack.pop();
+                const nextState = redoStack.pop()!; // Non-null as length > 0
                 drawnObjects = JSON.parse(JSON.stringify(nextState));
 
                 applyTransformAndDrawObjects();
                 scheduleSave();
                 updateUndoRedoButtonStates();
-                // console.log('Redo applied. Undo stack:', undoStack.length, 'Redo stack:', redoStack.length);
             } catch (e) {
                 console.error("Error during redo:", e);
             }
-        } else {
-            // console.log('Redo stack empty.');
         }
     }
 
     // --- Persistence Logic ---
-    function saveData() {
+    function saveData(): void {
         if (saveTimeout) { clearTimeout(saveTimeout); saveTimeout = null; }
         try {
             const data = JSON.stringify(drawnObjects);
             localStorage.setItem(STORAGE_KEY, data);
         } catch (error) { console.error('Error saving to localStorage:', error); }
     }
-    function scheduleSave() {
+    function scheduleSave(): void {
         if (saveTimeout) clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(saveData, 5000);
+        saveTimeout = window.setTimeout(saveData, 5000);
     }
-    function loadData() {
+    function loadData(): void {
         try {
             const data = localStorage.getItem(STORAGE_KEY);
             if (data) {
-                const parsedData = JSON.parse(data);
+                const parsedData: CanvasState = JSON.parse(data); // Assume data is CanvasState
                 if (Array.isArray(parsedData)) drawnObjects = parsedData; else drawnObjects = [];
             }
         } catch (error) { console.error('Error loading from localStorage:', error); drawnObjects = []; }
     }
 
     // --- Tool Switching Logic ---
-    function setActiveTool(tool) {
+    function setActiveTool(tool: ToolType): void {
         currentTool = tool;
         if (brushToolButton) brushToolButton.classList.toggle('active', tool === 'brush');
         if (rectToolButton) rectToolButton.classList.toggle('active', tool === 'rect');
@@ -157,41 +188,32 @@ document.addEventListener('DOMContentLoaded', () => {
     if (brushToolButton) brushToolButton.addEventListener('click', () => setActiveTool('brush'));
     if (rectToolButton) rectToolButton.addEventListener('click', () => setActiveTool('rect'));
     if (lineToolButton) lineToolButton.addEventListener('click', () => setActiveTool('line'));
-
-    if (undoButton) { // Added
-        undoButton.addEventListener('click', () => {
-            handleUndo();
-        });
-    }
-    if (redoButton) { // Added
-        redoButton.addEventListener('click', () => {
-            handleRedo();
-        });
-    }
+    if (undoButton) undoButton.addEventListener('click', handleUndo);
+    if (redoButton) redoButton.addEventListener('click', handleRedo);
 
     // --- Coordinate Helper ---
-    function getPointerPos(event) {
+    function getPointerPos(event: PointerEvent): Point {
         const rect = canvas.getBoundingClientRect();
         return { x: (event.clientX - rect.left - panX) / scale, y: (event.clientY - rect.top - panY) / scale };
     }
 
     // --- Rendering Logic ---
-    function applyTransformAndDrawObjects(isPreviewing = false, previewPos = null) {
+    function applyTransformAndDrawObjects(isPreviewing: boolean = false, previewPos: Point | null = null): void {
         ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         ctx.save();
         ctx.translate(panX, panY);
         ctx.scale(scale, scale);
 
-        drawnObjects.forEach(obj => {
+        drawnObjects.forEach((obj: DrawingObject) => {
             ctx.strokeStyle = obj.color;
-            const lineWidth = obj.lineWidth / scale;
-            ctx.lineWidth = lineWidth;
+            const currentLineWidth = obj.lineWidth / scale;
+            ctx.lineWidth = currentLineWidth;
             ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
             if (obj.type === 'brush') {
                 if (obj.isDot && obj.path.length === 1) {
                     ctx.beginPath();
-                    ctx.arc(obj.path[0].x, obj.path[0].y, lineWidth / 2, 0, Math.PI * 2);
+                    ctx.arc(obj.path[0].x, obj.path[0].y, currentLineWidth / 2, 0, Math.PI * 2);
                     ctx.fillStyle = obj.color;
                     ctx.fill();
                     return;
@@ -210,7 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        if (isPreviewing && isDrawing) {
+        if (isPreviewing && isDrawing) { // Preview for single-pointer drawing
             ctx.strokeStyle = '#000000';
             ctx.lineWidth = 2 / scale;
             ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -233,22 +255,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Gesture Helper Functions ---
-    function getDistanceBetweenPointers(pointersArray) {
+    function getDistanceBetweenPointers(pointersArray: PointerEvent[]): number {
         if (pointersArray.length < 2) return 0;
         const p1 = pointersArray[0]; const p2 = pointersArray[1];
         const dx = p1.clientX - p2.clientX; const dy = p1.clientY - p2.clientY;
         return Math.sqrt(dx * dx + dy * dy);
     }
-    function getCentroid(pointersArray) {
-        if (pointersArray.length < 2) return { x: 0, y: 0 };
+    function getCentroid(pointersArray: PointerEvent[]): Point {
+        if (pointersArray.length < 2) return { x: 0, y: 0 }; // Should ideally not be called with < 2
         const p1 = pointersArray[0]; const p2 = pointersArray[1];
         return { x: (p1.clientX + p2.clientX) / 2, y: (p1.clientY + p2.clientY) / 2 };
     }
 
     // --- Pointer Event Handlers ---
-    function onPointerDown(event) {
+    function onPointerDown(event: PointerEvent): void {
         activePointers.set(event.pointerId, event);
-        try { canvas.setPointerCapture(event.pointerId); } catch (e) { /* ignore */ }
+        try { canvas.setPointerCapture(event.pointerId); } catch (e) { console.warn("Failed to capture pointer", e); }
+
 
         if (activePointers.size === 2) {
             isGesturing = true;
@@ -260,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
             lastGesturePanPosition = getCentroid(pointers);
             setActiveTool(currentTool);
         } else if (activePointers.size === 1 && !isGesturing) {
-            const pointerEvent = event;
+            const pointerEvent = event; // Already typed as PointerEvent
             if ((pointerEvent.pointerType === 'mouse' && pointerEvent.button === 2) ||
                 (spacePressed && pointerEvent.isPrimary)) {
                 isPanning = true;
@@ -270,7 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
                        (pointerEvent.pointerType === 'touch' && pointerEvent.isPrimary)) && !spacePressed) {
                 isDrawing = true;
                 const pos = getPointerPos(pointerEvent);
-                startX = pos.x; startY = pos.y;
+                startX = pos.x; startY = pos.y; // These are numbers
                 if (currentTool === 'brush') {
                     currentPath = [{ x: startX, y: startY, isPotentialDot: true }];
                 }
@@ -279,14 +302,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function onPointerMove(event) {
+    function onPointerMove(event: PointerEvent): void {
         if (!activePointers.has(event.pointerId)) return;
         activePointers.set(event.pointerId, event);
 
         if (isGesturing && activePointers.size === 2) {
             const pointers = Array.from(activePointers.values());
             const currentCentroid = getCentroid(pointers);
-            const canvasRect = canvas.getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect(); // Get fresh rect for calculations
 
             if (lastGesturePanPosition) {
                 const dxPan = currentCentroid.x - lastGesturePanPosition.x;
@@ -330,9 +353,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function onPointerUpOrCancel(event) {
+    function onPointerUpOrCancel(event: PointerEvent): void {
         if (!activePointers.has(event.pointerId)) return;
-        try { canvas.releasePointerCapture(event.pointerId); } catch (e) { /* ignore */ }
+        try { canvas.releasePointerCapture(event.pointerId); } catch (e) { console.warn("Failed to release pointer capture", e); }
         activePointers.delete(event.pointerId);
 
         if (isGesturing) {
@@ -342,20 +365,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 lastGesturePanPosition = null;
                 setActiveTool(currentTool);
             }
-        } else if (isPanning && activePointers.size === 0) {
+        } else if (isPanning && activePointers.size === 0) { // Was single pointer panning
             isPanning = false;
             setActiveTool(currentTool);
-        } else if (isDrawing && activePointers.size === 0) {
+        } else if (isDrawing && activePointers.size === 0) { // Was single pointer drawing
             const pos = getPointerPos(event);
-            let newObject = null;
-            const commonProps = { color: '#000000', lineWidth: 2 };
+            let newObject: DrawingObject | null = null;
+            const commonProps: Pick<DrawingObjectBase, 'color' | 'lineWidth'> = { color: '#000000', lineWidth: 2 };
 
             if (currentTool === 'brush' && currentPath && currentPath.length > 0) {
-                let isDot = currentPath.length === 1 && currentPath[0].isPotentialDot;
-                if (isDot) {
+                let isActualDot = currentPath.length === 1 && currentPath[0].isPotentialDot === true;
+                if (isActualDot) {
                     newObject = { type: 'brush', path: [{ x: startX, y: startY }], isDot: true, ...commonProps };
                 } else {
-                    if (currentPath.length === 1 && (currentPath[0].x !== pos.x || currentPath[0].y !== pos.y)) {
+                    // Ensure the last point is added to the path if it moved
+                     if (currentPath.length === 1 && (currentPath[0].x !== pos.x || currentPath[0].y !== pos.y)) {
                          currentPath.push(pos);
                     } else if (currentPath.length > 1 && (currentPath[currentPath.length-1].x !== pos.x || currentPath[currentPath.length-1].y !== pos.y) ) {
                          currentPath.push(pos);
@@ -386,15 +410,18 @@ document.addEventListener('DOMContentLoaded', () => {
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUpOrCancel);
     canvas.addEventListener('pointercancel', onPointerUpOrCancel);
-    canvas.addEventListener('pointerleave', (e) => { if(e.pointerType === 'mouse') onPointerUpOrCancel(e);});
+    canvas.addEventListener('pointerleave', (e: PointerEvent) => { if(e.pointerType === 'mouse') onPointerUpOrCancel(e);});
 
-    canvas.addEventListener('contextmenu', (event) => {
-        if (event.pointerType === 'mouse' && event.button === 2) event.preventDefault();
+    canvas.addEventListener('contextmenu', (event: MouseEvent) => { // contextmenu is a MouseEvent
+        // Only prevent context menu for actual mouse right-click, not pen right-click which might be different
+        if (event.button === 2 && (event.pointerType === 'mouse' || event.pointerType === undefined)) {
+             event.preventDefault();
+        }
     });
 
     // --- Keyboard Event Listeners ---
-    window.addEventListener('keydown', (event) => {
-        if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+    window.addEventListener('keydown', (event: KeyboardEvent) => {
+        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
 
         if (event.code === 'Space') {
             if (!spacePressed) { spacePressed = true; setActiveTool(currentTool); event.preventDefault(); }
@@ -404,51 +431,48 @@ document.addEventListener('DOMContentLoaded', () => {
             setActiveTool('rect');
         } else if (event.key === 'l' || event.key === 'L') {
             setActiveTool('line');
-        } else if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) { // Ctrl+Z or Cmd+Z
-            event.preventDefault();
-            handleUndo();
-        } else if ((event.ctrlKey || event.metaKey) && event.key === 'y') { // Ctrl+Y or Cmd+Y
-            event.preventDefault();
-            handleRedo();
-        } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === 'Z' || event.key === 'z')) { // Ctrl+Shift+Z or Cmd+Shift+Z
-             event.preventDefault();
-             handleRedo();
+        } else if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+            event.preventDefault(); handleUndo();
+        } else if ((event.ctrlKey || event.metaKey) && event.key === 'y') {
+            event.preventDefault(); handleRedo();
+        } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === 'Z' || event.key === 'z')) {
+             event.preventDefault(); handleRedo();
         }
     });
-    window.addEventListener('keyup', (event) => {
+    window.addEventListener('keyup', (event: KeyboardEvent) => {
         if (event.code === 'Space') {
             spacePressed = false; setActiveTool(currentTool); event.preventDefault();
         }
     });
 
-    canvas.addEventListener('wheel', (event) => {
+    canvas.addEventListener('wheel', (event: WheelEvent) => {
         event.preventDefault();
-        const zoomIntensity = 0.1; const direction = event.deltaY < 0 ? 1 : -1;
+        const zoomIntensity: number = 0.1; const direction: number = event.deltaY < 0 ? 1 : -1;
         const currentRect = canvas.getBoundingClientRect();
-        const mouseX = event.clientX - currentRect.left; const mouseY = event.clientY - currentRect.top;
-        const pointX = (mouseX - panX) / scale; const pointY = (mouseY - panY) / scale;
-        let newScale = scale * (1 + direction * zoomIntensity);
+        const mouseX: number = event.clientX - currentRect.left; const mouseY: number = event.clientY - currentRect.top;
+        const pointX: number = (mouseX - panX) / scale; const pointY: number = (mouseY - panY) / scale;
+        let newScale: number = scale * (1 + direction * zoomIntensity);
         newScale = Math.max(0.1, Math.min(4, newScale));
         panX = mouseX - pointX * newScale; panY = mouseY - pointY * newScale;
         scale = newScale;
         applyTransformAndDrawObjects();
     }, { passive: false });
 
-    window.addEventListener('pagehide', saveData);
+    window.addEventListener('pagehide', saveData as EventListener); // Cast if needed, or ensure saveData matches
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveData(); });
 
     // --- Initial Load & Setup ---
     loadData();
     setActiveTool(currentTool);
     applyTransformAndDrawObjects();
-    saveStateForUndo(); // Save initial state for undo
-    updateUndoRedoButtonStates(); // Set initial button states
+    saveStateForUndo();
+    updateUndoRedoButtonStates();
 
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./sw.js')
-                .then(reg => console.log('SW registered:', reg.scope))
-                .catch(err => console.log('SW registration failed:', err));
+            navigator.serviceWorker.register('./sw.ts') // Registering sw.ts
+                .then(reg => console.log('ServiceWorker registration successful with scope: ', reg.scope))
+                .catch(err => console.log('ServiceWorker registration failed: ', err));
         });
     }
 });
