@@ -41,6 +41,16 @@ A simple infinite whiteboard application created with HTML, CSS, and pure JavaSc
 *   **L**: Select Line tool
 *   **Spacebar** (hold) + Left Mouse Drag: Pan the canvas
 
+## Mobile Compatibility
+
+This application is designed to work on mobile devices and supports touch interactions for drawing, panning, and zooming.
+
+-   **Drawing**: Use a single finger to draw with the selected tool.
+-   **Panning**: Use two fingers to drag and pan the canvas.
+-   **Zooming**: Use a two-finger pinch gesture to zoom in or out.
+
+For the best experience, a browser that supports the **Pointer Events API** is recommended. Most modern mobile browsers (Chrome for Android, Safari on iOS) have good support for Pointer Events. Basic touch interactions might also work on browsers that only support standard Touch Events, but Pointer Events provide a more unified and robust input model.
+
 ## Deployment (GitHub Pages)
 
 This project can be easily deployed using GitHub Pages:

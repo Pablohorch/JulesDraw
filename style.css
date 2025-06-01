@@ -14,6 +14,7 @@ body {
     /* Centering will be handled by JavaScript transformations for pan/zoom */
     /* For initial view, it will be at 0,0 of its large canvas size */
     cursor: crosshair; /* Default cursor */
+    touch-action: none; /* Prevent default touch behaviors like scrolling/zooming page */
 }
 
 #toolbar {
